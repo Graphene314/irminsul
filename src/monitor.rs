@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufWriter, Write};
-use std::time::Instant;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use anime_game_data::AnimeGameData;
 use anyhow::{Context, Result, anyhow};
@@ -57,6 +58,31 @@ pub struct Monitor {
     capture_cancel_token: Option<CancellationToken>,
     packet_tx: mpsc::UnboundedSender<Packet>,
     packet_rx: mpsc::UnboundedReceiver<Packet>,
+}
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn get_time() -> String {
+    
+    #[cfg(windows)]
+    let command = std::process::Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW) 
+        .args(&["-Command", "Get-Date -UFormat \"%H:%M:%S\""])
+        .output();
+
+    #[cfg(unix)]
+    //no way to test this on my end
+    let command = std::process::Command::new("date")
+        .args(["+%H:%M:%S"])
+        .output()?;
+
+    let string = match command {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        Err(e) => e.to_string(),
+    };
+
+    return string;
 }
 
 impl Monitor {
@@ -146,12 +172,12 @@ impl Monitor {
             if let Some(items) = matches_item_packet(&command) {
                 tracing::info!("Found item packet with {} items", items.len());
                 self.player_data.process_items(&items);
-                updated.items_updated = Some(Instant::now());
+                updated.items_updated = Some(get_time());
                 has_new_data = true;
             } else if let Some(avatars) = matches_avatar_packet(&command) {
                 tracing::info!("Found avatar packet with {} avatars", avatars.len());
                 self.player_data.process_characters(&avatars);
-                updated.characters_updated = Some(Instant::now());
+                updated.characters_updated = Some(get_time());
                 has_new_data = true;
             } else if let Some(achievements) = matches_achievement_packet(&command) {
                 tracing::info!(
@@ -159,7 +185,7 @@ impl Monitor {
                     achievements.len()
                 );
                 self.player_data.process_achievements(&achievements);
-                updated.achievements_updated = Some(Instant::now());
+                updated.achievements_updated = Some(get_time());
                 has_new_data = true;
             }
         }
