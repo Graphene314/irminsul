@@ -3,7 +3,6 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::thread;
-use std::time::Instant;
 
 use anyhow::{Context as _, Result, anyhow};
 use chrono::Local;
@@ -509,20 +508,23 @@ impl IrminsulApp {
             .num_columns(2)
             .min_col_width(0.)
             .show(ui, |ui| {
-                Self::data_state(ui, "Items", app_state.updated.items_updated);
-                Self::data_state(ui, "Characters", app_state.updated.characters_updated);
-                Self::data_state(ui, "Achievements", app_state.updated.achievements_updated);
+                Self::data_state(ui, "Items", &app_state.updated.items_updated);
+                Self::data_state(ui, "Characters", &app_state.updated.characters_updated);
+                Self::data_state(ui, "Achievements", &app_state.updated.achievements_updated);
             });
     }
 
-    fn data_state(ui: &mut egui::Ui, source: &str, last_updated: Option<Instant>) {
-        let updated_icon = match last_updated {
+    fn data_state(ui: &mut egui::Ui, source: &str, maybe_last_updated: &Option<String>) {
+        let updated_icon = match maybe_last_updated {
             Some(_) => RichText::new(egui_material_icons::icons::ICON_CHECK_CIRCLE)
                 .color(Color32::from_hex("#00ab3f").unwrap()),
             None => RichText::new(egui_material_icons::icons::ICON_CHECK_INDETERMINATE_SMALL),
         };
         ui.label(updated_icon);
         ui.label(source);
+        if let Some(last_updated) = maybe_last_updated {
+            ui.label("Captured: ".to_string() + last_updated);
+        }
         ui.end_row();
     }
 

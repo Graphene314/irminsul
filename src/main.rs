@@ -2,7 +2,6 @@
 
 use std::fmt::Display;
 use std::path::PathBuf;
-use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -56,9 +55,9 @@ pub enum Message {
 
 #[derive(Clone, Debug)]
 pub struct DataUpdated {
-    achievements_updated: Option<Instant>,
-    characters_updated: Option<Instant>,
-    items_updated: Option<Instant>,
+    achievements_updated: Option<String>,
+    characters_updated: Option<String>,
+    items_updated: Option<String>,
 }
 
 impl DataUpdated {
