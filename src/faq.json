@@ -1,0 +1,18 @@
+[
+    {
+        "question": "How do I use Irminsul?",
+        "answer": "Open the program (well you probably have if you're seeing this). Hit the play button before then entering the login door.\nWhen all 3 checkmarks are green you can export. If you have control of your character, then something went wrong and the info was not captured. You can change export settings after capturing."
+    },
+    {
+        "question": "How does Irminsul work?",
+        "answer": "Irminsul is a passive packet sniffer that decodes the character, artifact, and weapon info sent to the client."
+    },
+    {
+        "question": "Can I get banned using this?",
+        "answer": "There has never been any reports of bans from using Irminsul."
+    },
+    {
+        "question": "There's no green checkmarks after entering the door\nand theres something about \"unable to bruteforce keys\"",
+        "answer": "Packet capture reliability can greatly differ computer to computer. Sometimes a VPN is needed, some need an antivirus exception to Irminsul (its not a virus), some need to hop between MW or teapot."
+    }
+]

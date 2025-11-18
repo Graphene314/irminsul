@@ -64,10 +64,9 @@ pub struct Monitor {
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 fn get_time() -> String {
-    
     #[cfg(windows)]
     let command = std::process::Command::new("powershell")
-        .creation_flags(CREATE_NO_WINDOW) 
+        .creation_flags(CREATE_NO_WINDOW)
         .args(&["-Command", "Get-Date -UFormat \"%H:%M:%S\""])
         .output();
 

@@ -22,6 +22,14 @@ use crate::{
     AppState, ConfirmationType, Message, ReloadHandle, State, TracingLevel, open_log_dir, wish,
 };
 
+const FAQ_CONTENT: &str = include_str!("faq.json");
+
+#[derive(Debug, Deserialize)]
+struct FaqItem {
+    question: String,
+    answer: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SavedAppState {
     export_settings: ExportSettings,
@@ -88,6 +96,9 @@ pub struct IrminsulApp {
     restarting: bool,
 
     saved_state: SavedAppState,
+
+    log_buffer: Arc<LogLL>,
+    faq_modal_open: bool,
 }
 
 trait ToastError<T> {
@@ -207,6 +218,8 @@ impl IrminsulApp {
             restarting: false,
             state_rx,
             wish_url_rx,
+            log_buffer,
+            faq_modal_open: false,
         }
     }
 }
@@ -296,6 +309,13 @@ impl eframe::App for IrminsulApp {
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
                 ui.horizontal(|ui| {
+                    if ui
+                        .add(Button::new(RichText::new("FAQ").size(16.)).frame(false))
+                        .clicked()
+                    {
+                        self.faq_modal_open = true;
+                    }
+
                     let discord_icon = egui::include_image!("../assets/discord.svg");
                     if ui
                         .add(
@@ -466,6 +486,16 @@ impl IrminsulApp {
                 self.optimizer_settings_open = false;
             }
         }
+
+        if self.faq_modal_open {
+            let modal = Modal::new(Id::new("Frequently Asked Questions")).show(ui.ctx(), |ui| {
+                self.faq_modal(ui);
+            });
+            if modal.should_close() {
+                self.faq_modal_open = false;
+            }
+        }
+
         self.capture_ui(ui, app_state);
         ui.separator();
         self.genshin_optimizer_ui(ui, app_state);
@@ -843,6 +873,20 @@ impl IrminsulApp {
                 }
             },
         );
+    }
+
+    fn faq_modal(&mut self, ui: &mut egui::Ui) {
+        ui.set_width(500.0);
+        ui.heading("Frequently Asked Questions");
+        ui.separator();
+
+        let faq_list: Vec<FaqItem> =
+            serde_json::from_str(FAQ_CONTENT).expect("Failed to parse FAQ JSON at compile time");
+        for item in faq_list {
+            ui.collapsing(&item.question, |ui| {
+                ui.label(&item.answer);
+            });
+        }
     }
 
     fn optimizer_handle_export(&mut self, ui: &mut egui::Ui) -> Result<()> {

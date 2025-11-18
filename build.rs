@@ -4,10 +4,24 @@ use std::{env, io};
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use serde::Deserialize;
 use winresource::WindowsResource;
+
+#[derive(Debug, Deserialize)]
+struct FaqItem {
+    question: String,
+    answer: String,
+}
+
+const FAQ_CONTENT: &str = include_str!("src/faq.json");
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    //test FAQ file to make sure it works when compiled
+    let faq_list: Vec<FaqItem> =
+        serde_json::from_str(FAQ_CONTENT).expect("Failed to parse FAQ JSON at compile time");
+    assert!(!faq_list.is_empty(), "FAQ list should not be empty");
+
     // Download new game data and save it in a location to be included by the source.
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let cache_path = Path::new(&out_dir).join("game_data.json");
