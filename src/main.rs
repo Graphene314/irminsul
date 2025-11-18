@@ -1,15 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::fmt::Display;
+use std::collections::VecDeque;
+use std::fmt::{Display, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+use tracing::{Event, Level, Subscriber};
 use tracing_appender::rolling::Rotation;
+use tracing_subscriber::layer::Context as TracingContext;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{EnvFilter, reload};
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::{EnvFilter, Layer, reload};
 
 use crate::player_data::ExportSettings;
 
@@ -149,7 +155,8 @@ impl ReloadHandle {
 }
 
 fn main() -> eframe::Result {
-    let (_guard, reload_handle) = tracing_init().unwrap();
+    let log_buffer = LogLL::new(500, 6);
+    let (_guard, reload_handle) = tracing_init(log_buffer.clone()).unwrap();
 
     let args = Args::parse();
 
@@ -176,7 +183,13 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Irminsul",
         native_options,
-        Box::new(|cc| Ok(Box::new(app::IrminsulApp::new(cc, reload_handle)))),
+        Box::new(|cc| {
+            Ok(Box::new(app::IrminsulApp::new(
+                cc,
+                reload_handle,
+                log_buffer.clone(),
+            )))
+        }),
     )
 }
 
@@ -192,7 +205,113 @@ fn open_log_dir() -> Result<()> {
     Ok(())
 }
 
-fn tracing_init() -> Result<(tracing_appender::non_blocking::WorkerGuard, ReloadHandle)> {
+#[derive(Debug, Clone)]
+pub struct Log {
+    pub level: Level,
+    pub message: String,
+}
+
+pub struct LogLL {
+    buffer: Mutex<VecDeque<Log>>,
+    min_size: usize,
+    capacity: usize,
+}
+
+impl LogLL {
+    pub fn new(capacity: usize, min_size: usize) -> Arc<Self> {
+        Arc::new(Self {
+            buffer: Mutex::new(VecDeque::with_capacity(capacity)),
+            min_size,
+            capacity,
+        })
+    }
+
+    pub fn push(&self, entry: Log) {
+        let mut buffer = self.buffer.lock().unwrap();
+        if buffer.len() == self.capacity {
+            buffer.pop_front();
+        }
+        buffer.push_back(entry);
+    }
+
+    pub fn get_entries(&self) -> Vec<Log> {
+        let mut copy: Vec<Log> = self
+            .buffer
+            .lock()
+            .unwrap()
+            .iter()
+            // .filter(|l| l.level == Level::ERROR)
+            .cloned()
+            .collect();
+        if copy.len() < self.min_size {
+            copy.resize(
+                self.min_size,
+                Log {
+                    level: Level::ERROR,
+                    message: "".to_string(),
+                },
+            );
+        }
+        return copy;
+    }
+}
+
+pub struct GuiLayer {
+    log_buffer: Arc<LogLL>,
+}
+
+impl GuiLayer {
+    pub fn new(log_buffer: Arc<LogLL>) -> Self {
+        Self { log_buffer }
+    }
+}
+
+impl<S> Layer<S> for GuiLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_event(&self, event: &Event<'_>, _ctx: TracingContext<'_, S>) {
+        if event.metadata().level() >= &Level::INFO {
+            let mut visitor = CustomVisitor::new();
+            event.record(&mut visitor);
+
+            let entry = Log {
+                level: *event.metadata().level(),
+                message: visitor.message,
+            };
+            self.log_buffer.push(entry);
+        }
+    }
+}
+
+struct CustomVisitor {
+    message: String,
+}
+
+impl CustomVisitor {
+    fn new() -> Self {
+        Self {
+            message: String::new(),
+        }
+    }
+}
+
+impl tracing::field::Visit for CustomVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            write!(&mut self.message, "{:?}", value).unwrap();
+        } else {
+            if !self.message.is_empty() {
+                self.message.push_str(", ");
+            }
+            write!(&mut self.message, "{}: {:?}", field.name(), value).unwrap();
+        }
+    }
+}
+
+fn tracing_init(
+    log_buffer: Arc<LogLL>,
+) -> Result<(tracing_appender::non_blocking::WorkerGuard, ReloadHandle)> {
     let appender = tracing_appender::rolling::Builder::new()
         .filename_prefix("log")
         .rotation(Rotation::DAILY)
@@ -208,6 +327,7 @@ fn tracing_init() -> Result<(tracing_appender::non_blocking::WorkerGuard, Reload
     tracing_subscriber::registry()
         .with(filter)
         .with(writer)
+        .with(GuiLayer::new(log_buffer))
         .init();
     tracing::info!("Tracing initialized and logging to file.");
 

@@ -2,24 +2,28 @@ use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow};
 use chrono::Local;
 use egui::{
     Button, Color32, Context, DragValue, Id, Key, KeyboardShortcut, Modal, Modifiers, OpenUrl,
-    PointerButton, RichText, Sense, ViewportCommand,
+    PointerButton, RichText, ScrollArea, Sense, UiBuilder, ViewportCommand,
 };
 use egui_file_dialog::FileDialog;
 use egui_notify::Toasts;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot, watch};
+use tracing::Level;
 
 use crate::monitor::Monitor;
 use crate::player_data::ExportSettings;
 use crate::update::check_for_app_update;
 use crate::{
-    AppState, ConfirmationType, Message, ReloadHandle, State, TracingLevel, open_log_dir, wish,
+    AppState, ConfirmationType, LogLL, Message, ReloadHandle, State, TracingLevel, open_log_dir,
+    wish,
 };
 
 const FAQ_CONTENT: &str = include_str!("faq.json");
@@ -178,7 +182,11 @@ fn start_async_runtime(
 }
 
 impl IrminsulApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, mut tracing_reload_handle: ReloadHandle) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        mut tracing_reload_handle: ReloadHandle,
+        log_buffer: Arc<LogLL>,
+    ) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         egui_material_icons::initialize(&cc.egui_ctx);
 
@@ -287,6 +295,81 @@ impl eframe::App for IrminsulApp {
                 }
 
                 ui.horizontal(|ui| {
+                    let available_rect = ui.available_rect_before_wrap();
+                    let parent_height = available_rect.height();
+
+                    let fixed_width = 450.;
+                    let fixed_size = egui::vec2(fixed_width, parent_height);
+
+                    let fixed_rect = egui::Rect::from_min_size(available_rect.min, fixed_size);
+                    let ui_builder = UiBuilder::new()
+                        .max_rect(fixed_rect)
+                        .layout(egui::Layout::top_down(egui::Align::LEFT));
+                    let mut fixed_ui = ui.new_child(ui_builder);
+
+                    fixed_ui.vertical(|ui| {
+                        ui.add_space(300.);
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::same(5))
+                            .fill(egui::Color32::from_rgb(27, 27, 27))
+                            .corner_radius(egui::CornerRadius::same(5))
+                            .show(ui, |ui| {
+                                ui.collapsing(
+                                    RichText::new("Error Viewer")
+                                        .color(Color32::GRAY)
+                                        .size(16.)
+                                        .strong(),
+                                    |ui| {
+                                        egui::Frame::NONE
+                                            .inner_margin(egui::Margin::same(10))
+                                            .fill(egui::Color32::from_rgba_premultiplied(27, 27, 27, 0))
+                                            .corner_radius(egui::CornerRadius::same(10))
+                                            .show(ui, |ui| {
+                                                egui::Frame::NONE
+                                                    .outer_margin(egui::Margin::same(2))
+                                                    .show(ui, |ui| {
+                                                        ui.ctx().request_repaint_after(
+                                                            Duration::from_millis(250),
+                                                        );
+                                                        ScrollArea::vertical()
+                                                            .auto_shrink([false, false])
+                                                            .stick_to_bottom(true)
+                                                            .show(ui, |ui| {
+                                                                for entry in
+                                                                    self.log_buffer.get_entries()
+                                                                {
+                                                                    if entry.level != Level::ERROR {
+                                                                        continue;
+                                                                    }
+                                                                    let text = format!(
+                                                                        "[{}] {}",
+                                                                        entry.level, entry.message
+                                                                    );
+                                                                    let color = match entry.level {
+                                                                        Level::ERROR => {
+                                                                            Color32::RED
+                                                                        }
+                                                                        Level::WARN => {
+                                                                            Color32::YELLOW
+                                                                        }
+                                                                        Level::INFO => {
+                                                                            Color32::WHITE
+                                                                        }
+                                                                        _ => Color32::GRAY,
+                                                                    };
+                                                                    ui.label(
+                                                                        RichText::new(text)
+                                                                            .color(color),
+                                                                    );
+                                                                }
+                                                            });
+                                                    });
+                                            });
+                                    },
+                                );
+                            });
+                    });
+
                     ui.add_space(525.);
                     let state = self.state_rx.borrow_and_update().clone();
                     ui.vertical(|ui| match state.state {
